@@ -24,6 +24,18 @@
 
   * `oneOf` and `noneOf` were moved to `Text.Megaparsec`.
 
+* Combinators in stream-specific modules all have constraints on the token
+  type that can be used with them.
+
+  In particular, it means:
+
+  * `string'` in `Text.Megaparsec.Char` and `Text.Megaparsec.Byte` has the
+    constraints `Token s ~ Char` and `Token s ~ Word8` respectively.
+
+  * `symbol` and `symbol'` in `Text.Megaparsec.Char.Lexer` and
+    `Text.Megaparsec.Byte.Lexer` has the constraints `Token s ~ Char` and
+    `Token s ~ Word8` respectively.
+
 * Simplified the type of the `token` primitive. It now takes just a matching
   function `Token s -> Maybe a` as the first argument and the collection of
   expected items `Set (ErrorItem (Token s))` as the second argument. This

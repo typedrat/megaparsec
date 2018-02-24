@@ -11,6 +11,7 @@
 --
 -- @since 6.0.0
 
+{-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies        #-}
 
@@ -39,17 +40,18 @@ module Text.Megaparsec.Byte
   , char'
     -- * Sequence of bytes
   , string
-  , C.string' )
+  , string' )
 where
 
 import Control.Applicative
 import Data.Char
+import Data.Function (on)
 import Data.Functor (void)
 import Data.Maybe (fromMaybe)
 import Data.Proxy
 import Data.Word (Word8)
 import Text.Megaparsec
-import qualified Text.Megaparsec.Char as C
+import qualified Data.CaseInsensitive as CI
 
 ----------------------------------------------------------------------------
 -- Simple parsers
@@ -217,6 +219,18 @@ char' c = choice
 string :: (MonadParsec e s m, Token s ~ Word8) => Tokens s -> m (Tokens s)
 string = chunk
 {-# INLINE string #-}
+
+-- | The same as 'string', but case-insensitive. On success returns string
+-- cased as actually parsed input.
+--
+-- >>> parseTest (string' "foobar") "foObAr"
+-- "foObAr"
+
+string' :: (MonadParsec e s m, CI.FoldCase (Tokens s), Token s ~ Word8)
+  => Tokens s
+  -> m (Tokens s)
+string' = tokens ((==) `on` CI.mk)
+{-# INLINE string' #-}
 
 ----------------------------------------------------------------------------
 -- Helpers

@@ -14,6 +14,7 @@
 --
 -- > import qualified Text.Megaparsec.Byte.Lexer as L
 
+{-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies        #-}
 
@@ -21,8 +22,8 @@ module Text.Megaparsec.Byte.Lexer
   ( -- * White space
     C.space
   , C.lexeme
-  , C.symbol
-  , C.symbol'
+  , symbol
+  , symbol'
   , skipLineComment
   , skipBlockComment
   , skipBlockCommentNested
@@ -43,11 +44,45 @@ import Data.Scientific (Scientific)
 import Data.Word (Word8)
 import Text.Megaparsec
 import Text.Megaparsec.Byte
+import qualified Data.CaseInsensitive       as CI
 import qualified Data.Scientific            as Sci
+import qualified Text.Megaparsec.Byte       as B
 import qualified Text.Megaparsec.Char.Lexer as C
 
 ----------------------------------------------------------------------------
 -- White space
+
+-- | This is a helper to parse symbols, i.e. verbatim strings. You pass the
+-- first argument (parser that consumes white space, probably defined via
+-- 'C.space') and then you can use the resulting function to parse strings:
+--
+-- > symbol    = L.symbol spaceConsumer
+-- >
+-- > parens    = between (symbol "(") (symbol ")")
+-- > braces    = between (symbol "{") (symbol "}")
+-- > angles    = between (symbol "<") (symbol ">")
+-- > brackets  = between (symbol "[") (symbol "]")
+-- > semicolon = symbol ";"
+-- > comma     = symbol ","
+-- > colon     = symbol ":"
+-- > dot       = symbol "."
+
+symbol :: (MonadParsec e s m, Token s ~ Word8)
+  => m ()              -- ^ How to consume white space after lexeme
+  -> Tokens s          -- ^ Symbol to parse
+  -> m (Tokens s)
+symbol spc = C.lexeme spc . B.string
+{-# INLINEABLE symbol #-}
+
+-- | Case-insensitive version of 'symbol'. This may be helpful if you're
+-- working with case-insensitive languages.
+
+symbol' :: (MonadParsec e s m, CI.FoldCase (Tokens s), Token s ~ Word8)
+  => m ()              -- ^ How to consume white space after lexeme
+  -> Tokens s          -- ^ Symbol to parse (case-insensitive)
+  -> m (Tokens s)
+symbol' spc = C.lexeme spc . B.string'
+{-# INLINEABLE symbol' #-}
 
 -- | Given comment prefix this function returns a parser that skips line
 -- comments. Note that it stops just before the newline character but

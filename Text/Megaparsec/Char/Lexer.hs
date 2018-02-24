@@ -153,7 +153,7 @@ symbol spc = lexeme spc . C.string
 -- | Case-insensitive version of 'symbol'. This may be helpful if you're
 -- working with case-insensitive languages.
 
-symbol' :: (MonadParsec e s m, CI.FoldCase (Tokens s))
+symbol' :: (MonadParsec e s m, CI.FoldCase (Tokens s), Token s ~ Char)
   => m ()              -- ^ How to consume white space after lexeme
   -> Tokens s          -- ^ Symbol to parse (case-insensitive)
   -> m (Tokens s)

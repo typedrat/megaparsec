@@ -1,8 +1,10 @@
+{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Text.Megaparsec.Byte.LexerSpec (spec) where
 
 import Control.Applicative
+import Control.Monad
 import Data.ByteString (ByteString)
 import Data.Char (toUpper)
 import Data.Monoid ((<>))
@@ -23,6 +25,30 @@ type Parser = Parsec Void ByteString
 
 spec :: Spec
 spec = do
+
+  describe "symbol" $
+    context "when stream begins with the symbol" $
+      it "parses the symbol and trailing whitespace" $
+        property $ forAll mkSymbol $ \s -> do
+          let p = symbol scn y
+              y = B.takeWhile (not . isSpace) s
+          prs  p s `shouldParse` y
+          prs' p s `succeedsLeaving` ""
+
+  describe "symbol'" $
+    context "when stream begins with the symbol" $
+      it "parses the symbol and trailing whitespace" $
+        property $ forAll mkSymbol $ \s -> do
+          let p = symbol' scn y'
+              y' = B8.map toUpper y
+              y = B.takeWhile (not . isSpace) s
+          -- NOTE In some rare cases it's possible that y' will have a
+          -- different length than y due to the craziness of Unicode. We
+          -- cannot deal with those cases due to how the tokens primitive is
+          -- implemented. This is a “feature”, not a bug.
+          when (B.length y' /= B.length y) discard
+          prs  p s `shouldParse` y
+          prs' p s `succeedsLeaving` ""
 
   describe "skipLineComment" $ do
     context "when there is no newline at the end of line" $
@@ -262,6 +288,18 @@ spec = do
 ----------------------------------------------------------------------------
 -- Helpers
 
+mkSymbol :: Gen ByteString
+mkSymbol = do
+  sym <- symbolName
+  scp <- whiteChars
+  return . B.pack $ sym ++ scp
+
+symbolName :: Gen [Word8]
+symbolName = listOf $ arbitrary `suchThat` isAlphaNum
+
+whiteChars :: Gen [Word8]
+whiteChars = listOf (elements [9,10,32])
+
 prs
   :: Parser a          -- ^ Parser to run
   -> ByteString        -- ^ Input for the parser
@@ -285,3 +323,22 @@ isHexDigit w =
   (w >= 48 && w <= 57)  ||
   (w >= 97 && w <= 102) ||
   (w >= 65 && w <= 70)
+
+isAlpha :: Word8 -> Bool
+isAlpha w
+  | 65 <= w && w <= 90  = True
+  | 97 <= w && w <= 122 = True
+  | otherwise           = False
+
+isAlphaNum :: Word8 -> Bool
+isAlphaNum w = isAlpha w || isDigit w
+
+isSpace :: Word8 -> Bool
+isSpace = \case
+  9  -> True
+  10 -> True
+  32 -> True
+  _  -> False
+
+scn :: Parser ()
+scn = space B.space1 empty empty

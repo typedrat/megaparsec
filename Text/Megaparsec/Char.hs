@@ -321,7 +321,7 @@ string = chunk
 -- >>> parseTest (string' "foobar") "foObAr"
 -- "foObAr"
 
-string' :: (MonadParsec e s m, CI.FoldCase (Tokens s))
+string' :: (MonadParsec e s m, CI.FoldCase (Tokens s), Token s ~ Char)
   => Tokens s
   -> m (Tokens s)
 string' = tokens ((==) `on` CI.mk)
