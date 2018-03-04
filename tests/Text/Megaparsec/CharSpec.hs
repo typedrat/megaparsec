@@ -9,7 +9,8 @@ import Data.List (partition, isPrefixOf)
 import Data.Monoid ((<>))
 import Test.Hspec
 import Test.Hspec.Megaparsec
-import Test.Hspec.Megaparsec.AdHoc
+import Test.Hspec.Megaparsec.AdHoc.Char
+import Test.Hspec.Megaparsec.AdHoc.Common
 import Test.QuickCheck
 import Text.Megaparsec
 import Text.Megaparsec.Char

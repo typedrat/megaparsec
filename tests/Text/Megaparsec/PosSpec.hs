@@ -5,7 +5,7 @@ import Data.Function (on)
 import Data.List (isInfixOf)
 import Data.Semigroup ((<>))
 import Test.Hspec
-import Test.Hspec.Megaparsec.AdHoc ()
+import Test.Hspec.Megaparsec.AdHoc.Common ()
 import Test.QuickCheck
 import Text.Megaparsec.Pos
 

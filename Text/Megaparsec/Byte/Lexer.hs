@@ -20,8 +20,8 @@
 
 module Text.Megaparsec.Byte.Lexer
   ( -- * White space
-    C.space
-  , C.lexeme
+    space
+  , lexeme
   , symbol
   , symbol'
   , skipLineComment
@@ -43,14 +43,61 @@ import Data.Proxy
 import Data.Scientific (Scientific)
 import Data.Word (Word8)
 import Text.Megaparsec
-import Text.Megaparsec.Byte
-import qualified Data.CaseInsensitive       as CI
-import qualified Data.Scientific            as Sci
-import qualified Text.Megaparsec.Byte       as B
-import qualified Text.Megaparsec.Char.Lexer as C
+import qualified Data.CaseInsensitive as CI
+import qualified Data.Scientific      as Sci
+import qualified Text.Megaparsec.Byte as B
 
 ----------------------------------------------------------------------------
 -- White space
+
+-- | @'space' sc lineComment blockComment@ produces parser that can parse
+-- white space in general. It's expected that you create such a parser once
+-- and pass it to other functions in this module as needed (when you see
+-- @spaceConsumer@ in documentation, usually it means that something like
+-- 'space' is expected there).
+--
+-- @sc@ is used to parse blocks of space characters. You can use 'B.space1'
+-- from "Text.Megaparsec.Byte" for this purpose as well as your own parser
+-- (if you don't want to automatically consume newlines, for example). Make
+-- sure the parser does not succeed on empty input though. In earlier
+-- version 'B.spaceChar' was recommended, but now parsers based on
+-- 'takeWhile1P' are preferred because of their speed.
+--
+-- @lineComment@ is used to parse line comments. You can use
+-- 'skipLineComment' if you don't need anything special.
+--
+-- @blockComment@ is used to parse block (multi-line) comments. You can use
+-- 'skipBlockComment' or 'skipBlockCommentNested' if you don't need anything
+-- special.
+--
+-- If you don't want to allow a kind of comment, simply pass 'empty' which
+-- will fail instantly when parsing of that sort of comment is attempted and
+-- 'space' will just move on or finish depending on whether there is more
+-- white space for it to consume.
+
+space :: MonadParsec e s m
+  => m () -- ^ A parser for space characters which does not accept empty
+          -- input (e.g. 'C.space1')
+  -> m () -- ^ A parser for a line comment (e.g. 'skipLineComment')
+  -> m () -- ^ A parser for a block comment (e.g. 'skipBlockComment')
+  -> m ()
+space sp line block = skipMany $ choice
+  [hidden sp, hidden line, hidden block]
+{-# INLINEABLE space #-}
+
+-- | This is a wrapper for lexemes. Typical usage is to supply the first
+-- argument (parser that consumes white space, probably defined via 'space')
+-- and use the resulting function to wrap parsers for every lexeme.
+--
+-- > lexeme  = L.lexeme spaceConsumer
+-- > integer = lexeme L.decimal
+
+lexeme :: MonadParsec e s m
+  => m ()              -- ^ How to consume white space after lexeme
+  -> m a               -- ^ How to parse actual lexeme
+  -> m a
+lexeme spc p = p <* spc
+{-# INLINEABLE lexeme #-}
 
 -- | This is a helper to parse symbols, i.e. verbatim strings. You pass the
 -- first argument (parser that consumes white space, probably defined via
@@ -71,7 +118,7 @@ symbol :: (MonadParsec e s m, Token s ~ Word8)
   => m ()              -- ^ How to consume white space after lexeme
   -> Tokens s          -- ^ Symbol to parse
   -> m (Tokens s)
-symbol spc = C.lexeme spc . B.string
+symbol spc = lexeme spc . B.string
 {-# INLINEABLE symbol #-}
 
 -- | Case-insensitive version of 'symbol'. This may be helpful if you're
@@ -81,7 +128,7 @@ symbol' :: (MonadParsec e s m, CI.FoldCase (Tokens s), Token s ~ Word8)
   => m ()              -- ^ How to consume white space after lexeme
   -> Tokens s          -- ^ Symbol to parse (case-insensitive)
   -> m (Tokens s)
-symbol' spc = C.lexeme spc . B.string'
+symbol' spc = lexeme spc . B.string'
 {-# INLINEABLE symbol' #-}
 
 -- | Given comment prefix this function returns a parser that skips line
@@ -93,7 +140,7 @@ skipLineComment :: (MonadParsec e s m, Token s ~ Word8)
   => Tokens s          -- ^ Line comment prefix
   -> m ()
 skipLineComment prefix =
-  string prefix *> void (takeWhileP (Just "character") (/= 10))
+  B.string prefix *> void (takeWhileP (Just "character") (/= 10))
 {-# INLINEABLE skipLineComment #-}
 
 -- | @'skipBlockComment' start end@ skips non-nested block comment starting
@@ -105,8 +152,8 @@ skipBlockComment :: (MonadParsec e s m, Token s ~ Word8)
   -> m ()
 skipBlockComment start end = p >> void (manyTill anySingle n)
   where
-    p = string start
-    n = string end
+    p = B.string start
+    n = B.string end
 {-# INLINEABLE skipBlockComment #-}
 
 -- | @'skipBlockCommentNested' start end@ skips possibly nested block
@@ -121,8 +168,8 @@ skipBlockCommentNested :: (MonadParsec e s m, Token s ~ Word8)
 skipBlockCommentNested start end = p >> void (manyTill e n)
   where
     e = skipBlockCommentNested start end <|> void anySingle
-    p = string start
-    n = string end
+    p = B.string start
+    n = B.string end
 {-# INLINEABLE skipBlockCommentNested #-}
 
 ----------------------------------------------------------------------------
@@ -245,7 +292,7 @@ dotDecimal_ :: (MonadParsec e s m, Token s ~ Word8)
   -> Integer
   -> m SP
 dotDecimal_ pxy c' = do
-  void (char 46)
+  void (B.char 46)
   let mkNum    = foldl' step (SP c' 0) . chunkToTokens pxy
       step (SP a e') w = SP
         (a * 10 + fromIntegral (w - 48))
@@ -257,7 +304,7 @@ exponent_ :: (MonadParsec e s m, Token s ~ Word8)
   => Int
   -> m Int
 exponent_ e' = do
-  void (char' 101)
+  void (B.char' 101)
   (+ e') <$> signed (return ()) decimal_
 {-# INLINE exponent_ #-}
 
@@ -277,9 +324,9 @@ signed :: (MonadParsec e s m, Token s ~ Word8, Num a)
   => m ()              -- ^ How to consume white space after the sign
   -> m a               -- ^ How to parse the number itself
   -> m a               -- ^ Parser for signed numbers
-signed spc p = ($) <$> option id (C.lexeme spc sign) <*> p
+signed spc p = ($) <$> option id (lexeme spc sign) <*> p
   where
-    sign = (id <$ char 43) <|> (negate <$ char 45)
+    sign = (id <$ B.char 43) <|> (negate <$ B.char 45)
 {-# INLINEABLE signed #-}
 
 ----------------------------------------------------------------------------

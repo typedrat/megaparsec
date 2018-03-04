@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Text.Megaparsec.Byte.LexerSpec (spec) where
@@ -9,19 +8,17 @@ import Data.ByteString (ByteString)
 import Data.Char (toUpper)
 import Data.Monoid ((<>))
 import Data.Scientific (Scientific, fromFloatDigits)
-import Data.Void
 import Data.Word (Word8)
 import Numeric (showInt, showHex, showOct, showFFloatAlt)
 import Test.Hspec
 import Test.Hspec.Megaparsec
+import Test.Hspec.Megaparsec.AdHoc.Byte
 import Test.QuickCheck
 import Text.Megaparsec
 import Text.Megaparsec.Byte.Lexer
 import qualified Data.ByteString       as B
 import qualified Data.ByteString.Char8 as B8
 import qualified Text.Megaparsec.Byte  as B
-
-type Parser = Parsec Void ByteString
 
 spec :: Spec
 spec = do
@@ -299,46 +296,6 @@ symbolName = listOf $ arbitrary `suchThat` isAlphaNum
 
 whiteChars :: Gen [Word8]
 whiteChars = listOf (elements [9,10,32])
-
-prs
-  :: Parser a          -- ^ Parser to run
-  -> ByteString        -- ^ Input for the parser
-  -> Either (ParseError Word8 Void) a -- ^ Result of parsing
-prs p = parse p ""
-
-prs'
-  :: Parser a          -- ^ Parser to run
-  -> ByteString        -- ^ Input for the parser
-  -> (State ByteString, Either (ParseError Word8 Void) a) -- ^ Result of parsing
-prs' p s = runParser' p (initialState s)
-
-isDigit :: Word8 -> Bool
-isDigit w = w - 48 < 10
-
-isOctDigit :: Word8 -> Bool
-isOctDigit w = w - 48 < 8
-
-isHexDigit :: Word8 -> Bool
-isHexDigit w =
-  (w >= 48 && w <= 57)  ||
-  (w >= 97 && w <= 102) ||
-  (w >= 65 && w <= 70)
-
-isAlpha :: Word8 -> Bool
-isAlpha w
-  | 65 <= w && w <= 90  = True
-  | 97 <= w && w <= 122 = True
-  | otherwise           = False
-
-isAlphaNum :: Word8 -> Bool
-isAlphaNum w = isAlpha w || isDigit w
-
-isSpace :: Word8 -> Bool
-isSpace = \case
-  9  -> True
-  10 -> True
-  32 -> True
-  _  -> False
 
 scn :: Parser ()
 scn = space B.space1 empty empty

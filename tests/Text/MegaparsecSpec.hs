@@ -28,7 +28,8 @@ import Data.Void
 import Prelude hiding (span, concat)
 import Test.Hspec
 import Test.Hspec.Megaparsec
-import Test.Hspec.Megaparsec.AdHoc
+import Test.Hspec.Megaparsec.AdHoc.Char
+import Test.Hspec.Megaparsec.AdHoc.Common
 import Test.QuickCheck hiding (label)
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -44,10 +45,6 @@ import qualified Data.List.NonEmpty          as NE
 import qualified Data.Semigroup              as G
 import qualified Data.Set                    as E
 import qualified Data.Text                   as T
-
-#if !MIN_VERSION_base(4,8,0)
-import Control.Applicative hiding (many, some)
-#endif
 
 #if !MIN_VERSION_QuickCheck(2,8,2)
 instance (Arbitrary a, Ord a) => Arbitrary (E.Set a) where

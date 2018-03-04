@@ -16,15 +16,12 @@ import Data.Void (Void)
 import Numeric (showInt, showHex, showOct, showFFloatAlt)
 import Test.Hspec
 import Test.Hspec.Megaparsec
-import Test.Hspec.Megaparsec.AdHoc
+import Test.Hspec.Megaparsec.AdHoc.Char
+import Test.Hspec.Megaparsec.AdHoc.Common ()
 import Test.QuickCheck
 import Text.Megaparsec
 import Text.Megaparsec.Char.Lexer
 import qualified Text.Megaparsec.Char as C
-
-#if !MIN_VERSION_base(4,8,0)
-import Control.Applicative hiding (many, some)
-#endif
 
 spec :: Spec
 spec = do

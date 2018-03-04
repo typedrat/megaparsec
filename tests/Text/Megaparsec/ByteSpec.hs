@@ -5,25 +5,26 @@ module Text.Megaparsec.ByteSpec (spec) where
 
 import Control.Monad
 import Data.ByteString (ByteString)
-import Data.Char
+import Data.Char (isControl, isPrint, isLower, toLower, toUpper)
+import Data.Function (on)
+import Data.List (isPrefixOf)
 import Data.Maybe (fromMaybe)
 import Data.Proxy
 import Data.Semigroup ((<>))
-import Data.Void
 import Data.Word (Word8)
 import Test.Hspec
 import Test.Hspec.Megaparsec
-import Test.Hspec.Megaparsec.AdHoc (nes)
+import Test.Hspec.Megaparsec.AdHoc.Byte
+import Test.Hspec.Megaparsec.AdHoc.Common (nes)
 import Test.QuickCheck
 import Text.Megaparsec
 import Text.Megaparsec.Byte
-import qualified Data.ByteString as B
+import qualified Data.ByteString       as B
+import qualified Data.ByteString.Char8 as B8
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
 #endif
-
-type Parser = Parsec Void ByteString
 
 spec :: Spec
 spec = do
@@ -74,7 +75,7 @@ spec = do
   describe "space" $
     it "consumes space up to first non-space character" $
       property $ \s' -> do
-        let (s0,s1) = B.partition isSpace' s'
+        let (s0,s1) = B.partition isSpace s'
             s = s0 <> s1
         prs  space s `shouldParse` ()
         prs' space s `succeedsLeaving` s1
@@ -82,15 +83,15 @@ spec = do
   describe "space1" $ do
     context "when stream does not start with a space character" $
       it "signals correct parse error" $
-        property $ \ch s' -> not (isSpace' ch) ==> do
-          let (s0,s1) = B.partition isSpace' s'
+        property $ \ch s' -> not (isSpace ch) ==> do
+          let (s0,s1) = B.partition isSpace s'
               s = B.singleton ch <> s0 <> s1
           prs  space1 s `shouldFailWith` err posI (utok ch <> elabel "white space")
           prs' space1 s `failsLeaving` s
     context "when stream starts with a space character" $
       it "consumes space up to first non-space character" $
         property $ \s' -> do
-          let (s0,s1) = B.partition isSpace' s'
+          let (s0,s1) = B.partition isSpace s'
               s = " " <> s0 <> s1
           prs  space1 s `shouldParse` ()
           prs' space1 s `succeedsLeaving` s1
@@ -105,7 +106,7 @@ spec = do
     checkCharRange "white space" [9,10,11,12,13,32,160] spaceChar
 
   describe "alphaNumChar" $
-    checkCharPred "alphanumeric character" (isAlphaNum . toChar) alphaNumChar
+    checkCharPred "alphanumeric character" isAlphaNum alphaNumChar
 
   describe "printChar" $
     checkCharPred "printable character" (isPrint . toChar) printChar
@@ -141,6 +142,35 @@ spec = do
         property $ \ch -> do
           let ms = ueof <> etok (liftChar toLower ch) <> etok (liftChar toUpper ch)
           prs  (char' ch) "" `shouldFailWith` err posI ms
+
+  describe "string" $ do
+    context "when stream is prefixed with given string" $
+      it "parses the string" $
+        property $ \str s -> do
+          let s' = str <> s
+          prs  (string str) s' `shouldParse`     str
+          prs' (string str) s' `succeedsLeaving` s
+    context "when stream is not prefixed with given string" $
+      it "signals correct parse error" $
+        property $ \str s -> not (str `B.isPrefixOf` s) ==> do
+          let us = B.take (B.length str) s
+          prs (string str) s `shouldFailWith`
+            err posI (utoks (B.unpack us) <> etoks (B.unpack str))
+
+  describe "string'" $ do
+    context "when stream is prefixed with given string" $
+      it "parses the string" $
+        property $ \str s ->
+          forAll (fuzzyCase str) $ \str' -> do
+            let s' = str' <> s
+            prs  (string' str) s' `shouldParse`     str'
+            prs' (string' str) s' `succeedsLeaving` s
+    context "when stream is not prefixed with given string" $
+      it "signals correct parse error" $
+        property $ \str s -> not (str `isPrefixOfI` s) ==> do
+          let us = B.take (B.length str) s
+          prs  (string' str) s `shouldFailWith`
+            err posI (utoks (B.unpack us) <> etoks (B.unpack str))
 
 ----------------------------------------------------------------------------
 -- Helpers
@@ -196,44 +226,21 @@ checkCharRange name tchs p = do
     it "signals correct parse error" $
       prs p "" `shouldFailWith` err posI (ueof <> elabel name)
 
-prs
-  :: Parser a          -- ^ Parser to run
-  -> ByteString        -- ^ Input for the parser
-  -> Either (ParseError Word8 Void) a -- ^ Result of parsing
-prs p = parse p ""
-
-prs'
-  :: Parser a          -- ^ Parser to run
-  -> ByteString        -- ^ Input for the parser
-  -> (State ByteString, Either (ParseError Word8 Void) a) -- ^ Result of parsing
-prs' p s = runParser' p (initialState s)
-
 bproxy :: Proxy ByteString
 bproxy = Proxy
-
--- | 'Word8'-specialized version of 'isSpace'.
-
-isSpace' :: Word8 -> Bool
-isSpace' x
-  | x >= 9 && x <= 13 = True
-  | x == 32           = True
-  | x == 160          = True
-  | otherwise         = False
-
--- | Convert a byte to char.
-
-toChar :: Word8 -> Char
-toChar = chr . fromIntegral
-
--- | Covert a char to byte.
-
-fromChar :: Char -> Maybe Word8
-fromChar x = let p = ord x in
-  if p > 0xff
-    then Nothing
-    else Just (fromIntegral p)
 
 -- | Lift char transformation to byte transformation.
 
 liftChar :: (Char -> Char) -> Word8 -> Word8
 liftChar f x = (fromMaybe x . fromChar . f . toChar) x
+
+-- | Randomly change the case in the given string.
+
+fuzzyCase :: ByteString -> Gen ByteString
+fuzzyCase s = B8.pack . zipWith f (B8.unpack s) <$> vector (B.length s)
+  where
+    f k True  = if isLower k then toUpper k else toLower k
+    f k False = k
+
+isPrefixOfI :: ByteString -> ByteString -> Bool
+isPrefixOfI = isPrefixOf `on` fmap toUpper . B8.unpack

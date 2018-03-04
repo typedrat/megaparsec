@@ -77,7 +77,9 @@ test-suite tests
   other-modules:      Control.Applicative.CombinatorsSpec
                     , Control.Monad.CombinatorsSpec
                     , Test.Hspec.Megaparsec
-                    , Test.Hspec.Megaparsec.AdHoc
+                    , Test.Hspec.Megaparsec.AdHoc.Byte
+                    , Test.Hspec.Megaparsec.AdHoc.Char
+                    , Test.Hspec.Megaparsec.AdHoc.Common
                     , Text.Megaparsec.Byte.LexerSpec
                     , Text.Megaparsec.ByteSpec
                     , Text.Megaparsec.Char.LexerSpec

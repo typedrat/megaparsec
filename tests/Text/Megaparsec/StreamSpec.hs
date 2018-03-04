@@ -6,7 +6,7 @@ import Data.Char (isLetter, chr)
 import Data.Proxy
 import Data.Semigroup ((<>))
 import Test.Hspec
-import Test.Hspec.Megaparsec.AdHoc
+import Test.Hspec.Megaparsec.AdHoc.Common ()
 import Test.QuickCheck
 import Text.Megaparsec
 import qualified Data.ByteString      as B

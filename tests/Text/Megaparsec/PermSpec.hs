@@ -7,7 +7,7 @@ import Data.List (nub, elemIndices)
 import Data.Monoid
 import Test.Hspec
 import Test.Hspec.Megaparsec
-import Test.Hspec.Megaparsec.AdHoc
+import Test.Hspec.Megaparsec.AdHoc.Char
 import Test.QuickCheck
 import Text.Megaparsec.Char
 import Text.Megaparsec.Char.Lexer (decimal)
