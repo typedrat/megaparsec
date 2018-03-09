@@ -20,10 +20,11 @@
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving  #-}
 {-# LANGUAGE TypeFamilies        #-}
 
 module Text.Megaparsec.Stream
-  ( Stream (..) )
+  ( ScanResult(..), Stream (..) )
 where
 
 import Data.List (foldl')
@@ -50,6 +51,15 @@ import qualified Data.Text.Internal.Lazy        as TLI
 import Control.Applicative
 import Data.Monoid (Monoid(mempty))
 #endif
+
+-- | This is just a random place to put this while Alexis writes a text of the suitability of
+-- the cool new scanning parser she's writing.
+data ScanResult s st = Continue st
+                     | Done
+                     | Expected (Token s) String
+                     | OutOfInput String
+
+deriving instance (Show (Token s), Show st) => Show (ScanResult s st)
 
 -- | Type class for inputs that can be consumed by the library.
 
@@ -188,17 +198,18 @@ class (Ord (Token s), Ord (Tokens s)) => Stream s where
   -- performance improvements, although it is not strictly necessary from
   -- conceptual point of view.
 
-  scan_ :: (st -> Token s -> Maybe st) -> st -> s -> (Tokens s, s)
+  scan_ :: (st -> Maybe (Token s) -> ScanResult s st) -> st -> s -> (Tokens s, s, ScanResult s st)
 
-  default scan_ :: (Monoid s) => (st -> Token s -> Maybe st) -> st -> s -> (Tokens s, s)
+  default scan_ :: (Monoid s) => (st -> Maybe (Token s) -> ScanResult s st) -> st -> s -> (Tokens s, s, ScanResult s st)
   scan_ p state str = scan' state str []
     where
       scan' st s toks = case take1_ s of
         Just (tok, rest) ->
-          case p st tok of
-            Just st' -> scan' st' rest (tok:toks)
-            Nothing -> (tokensToChunk proxy (reverse toks), rest)
-        Nothing -> (tokensToChunk proxy (reverse toks), mempty)
+          case p st (Just tok) of
+            Continue st' -> scan' st' rest (tok:toks)
+            Done -> (tokensToChunk proxy (reverse $ tok:toks), rest, Done)
+            err -> (tokensToChunk proxy (reverse toks), s, err)
+        Nothing -> (tokensToChunk proxy (reverse toks), mempty, p st Nothing)
         where
           proxy = Proxy :: Proxy s
 
@@ -219,12 +230,14 @@ instance Stream String where
     | null s    = Nothing
     | otherwise = Just (splitAt n s)
   takeWhile_ = span
+  scan_ p st  []  = ("", "", p st Nothing)
   scan_ p st str = scan_' st ([], str)
     where
-      scan_' _     (toks, rest@[]) = (reverse toks, rest)
-      scan_' state (toks, rest@(char:rest')) = case p state char of
-        Just st' -> scan_' st' (char:toks, rest')
-        Nothing  -> (reverse toks, rest)
+      scan_' state (toks, rest@(char:rest')) = case p state (Just char) of
+        Continue st' | null rest' -> (reverse toks, "", p st' Nothing)
+                     | otherwise  -> scan_' st' (char:toks, rest')
+        Done -> (reverse (char:toks), rest', Done)
+        err -> (reverse toks, rest, err)
 
 instance Stream B.ByteString where
   type Token B.ByteString = Word8
@@ -243,23 +256,28 @@ instance Stream B.ByteString where
     | otherwise = Just (B.splitAt n s)
   takeWhile_ = B.span
   -- This is not gonna be pretty.
-  scan_ p state bs = unsafePerformIO (evilScan bs)
+  scan_ p state bs
+    | B.null bs = (B.empty, B.empty, p state Nothing)
+    | otherwise = unsafePerformIO (evilScan bs)
     where
       evilScan (BI.PS fp off len) = withForeignPtr fp $ \ptr0 -> do
         let start = ptr0  `plusPtr` off
             end   = start `plusPtr` len
             scan' !st ptr
               | ptr < end = do
+                let next = ptr `plusPtr` 1
                 char <- peek ptr
-                case p st char of
-                  Just st' -> scan' st' (ptr `plusPtr` 1)
-                  Nothing -> return (ptr `minusPtr` start)
-              | otherwise = return len
-        matched <- scan' state start
+                case p st (Just char) of
+                  Continue st' | next == end -> return (len, p st' Nothing)
+                               | otherwise   -> scan' st' next
+                  Done -> return (ptr `minusPtr` start + 1, Done)
+                  err -> return (ptr `minusPtr` start, err)
+              | otherwise = return (len, p st Nothing)
+        (matched, st') <- scan' state start
         let match    = BI.PS fp off matched
             rest     = BI.PS fp (off + matched) (len - matched)
 
-        return (match, rest)
+        return (match, rest, st')
 
 instance Stream BL.ByteString where
   type Token BL.ByteString = Word8
@@ -279,16 +297,16 @@ instance Stream BL.ByteString where
   takeWhile_ = BL.span
   scan_ p state0 bytes = unsafePerformIO (evilScanL bytes state0 BL.empty)
     where
-      evilScanL BLI.Empty _ existing = return (existing, BL.empty)
+      evilScanL BLI.Empty st existing = return (existing, BL.empty, p st Nothing)
       evilScanL (BLI.Chunk bs next) state existing = do
         (match, rest, done) <- evilScanS bs state
         let existing' = BL.append existing (BLI.chunk match BLI.Empty)
 
         case done of
-          -- If done == Nothing, then evilScanS stopped because it failed to match, so we're done.
-          Nothing -> return (existing', BLI.chunk rest BLI.Empty)
+          -- If done == Left, then evilScanS stopped because it failed to match, so we're done.
+          Left state'  -> return (existing', BLI.chunk rest BLI.Empty, state')
           -- Otherwise, we need to keep going with the next chunk of the lazy string.
-          Just state' -> evilScanL next state' existing'
+          Right state' -> evilScanL next state' existing'
 
       evilScanS (BI.PS fp off len) state = withForeignPtr fp $ \ptr0 -> do
         let start = ptr0  `plusPtr` off
@@ -296,10 +314,11 @@ instance Stream BL.ByteString where
             scan' !st ptr
               | ptr < end = do
                 char <- peek ptr
-                case p st char of
-                  Just st' -> scan' st' (ptr `plusPtr` 1)
-                  Nothing -> return (ptr `minusPtr` start, Nothing)
-              | otherwise = return (len, Just st)
+                case p st (Just char) of
+                  Continue st' -> scan' st' (ptr `plusPtr` 1)
+                  Done -> return (ptr `minusPtr` start + 1, Left Done)
+                  err -> return (ptr `minusPtr` start, Left err)
+              | otherwise = return (len, Right st)
         (matched, done) <- scan' state start
         let match    = BI.PS fp off matched
             rest     = BI.PS fp (off + matched) (len - matched)
@@ -327,10 +346,12 @@ instance Stream T.Text where
       -- Mucking around with secret internals is merely *ugly*, as opposed to the unalloyed evil of unsafePerformIO
       uglyScan st off
         | off < len =
-          case p st (TI.unsafeChr (TI.unsafeIndex array (offset + off))) of
-            Just st' -> uglyScan st' (off + 1)
-            Nothing  -> (TI.Text array offset off, TI.Text array (offset + off) (len - off))
-        | otherwise = (orig, T.empty)
+          case p st (Just $ TI.unsafeChr (TI.unsafeIndex array (offset + off))) of
+            Continue st' | off + 1 == len -> (TI.Text array offset (off + 1), TI.Text array (offset + off + 1) (len - off - 1), p st' Nothing)
+                         | otherwise      -> uglyScan st' (off + 1)
+            Done -> (TI.Text array offset (off + 1), TI.Text array (offset + off + 1) (len - off - 1), Done)
+            err -> (TI.Text array offset off, TI.Text array (offset + off) (len - off), err)
+        | otherwise = (orig, T.empty, p st Nothing)
 
 instance Stream TL.Text where
   type Token TL.Text  = Char
@@ -350,13 +371,13 @@ instance Stream TL.Text where
   takeWhile_ = TL.span
   scan_ p state0 text = uglyScanL text state0 TL.empty
     where
-      uglyScanL TLI.Empty _ existing = (existing, TL.empty)
+      uglyScanL TLI.Empty state existing = (existing, TL.empty, p state Nothing)
       uglyScanL (TLI.Chunk txt next) state existing =
         case done of
-          -- If done == Nothing, then uglyScanS stopped because it failed to match, so we're done.
-          Nothing -> (existing', TLI.chunk rest TLI.Empty)
+          -- If done == Left, then uglyScanS stopped because it failed to match, so we're done.
+          Left state' -> (existing', TLI.chunk rest TLI.Empty, state')
           -- Otherwise, we need to keep going with the next chunk of the lazy string.
-          Just state' -> uglyScanL next state' existing'
+          Right state' -> uglyScanL next state' existing'
         where
           (match, rest, done) = uglyScanS txt state
           existing' = TL.append existing (TLI.chunk match TLI.Empty)
@@ -365,10 +386,11 @@ instance Stream TL.Text where
         where
           scan' st off
             | off < len =
-              case p st (TI.unsafeChr (TI.unsafeIndex array (offset + off))) of
-                Just st' -> scan' st' (off + 1)
-                Nothing  -> (TI.Text array offset off, TI.Text array (offset + off) (len - off), Nothing)
-            | otherwise = (orig, T.empty, Just st)
+              case p st (Just $ TI.unsafeChr (TI.unsafeIndex array (offset + off))) of
+                Continue st' -> scan' st' (off + 1)
+                Done -> (TI.Text array offset (off + 1), TI.Text array (offset + off + 1) (len - off - 1), Left Done)
+                err -> (TI.Text array offset off, TI.Text array (offset + off) (len - off), Left err)
+            | otherwise = (orig, T.empty, Right st)
 
 ----------------------------------------------------------------------------
 -- Helpers

@@ -80,6 +80,7 @@ module Text.Megaparsec
   , module Control.Monad.Combinators
     -- * Data types
   , State (..)
+  , ScanResult(..)
   , Parsec
   , ParsecT
     -- * Running parser
@@ -877,7 +878,7 @@ class (Stream s, A.Alternative m, MonadPlus m)
   scanP
     :: Maybe String
     -> st
-    -> (st -> Token s -> Maybe st)
+    -> (st -> Maybe (Token s) -> ScanResult s st)
     -> m (Tokens s)
 
   -- | Extract the specified number of tokens from the input stream and
@@ -1090,20 +1091,36 @@ pTakeWhileP ml f = ParsecT $ \(State input (pos:|z) tp w) cok _ eok _ ->
 pScanP :: forall e s m st. Stream s
     => Maybe String
     -> st
-    -> (st -> Token s -> Maybe st)
+    -> (st -> Maybe (Token s) -> ScanResult s st)
     -> ParsecT e s m (Tokens s)
-pScanP ml st f = ParsecT $ \(State input (pos:|z) tp w) cok _ eok _ ->
+pScanP ml st f = ParsecT $ \(State input (pos:|z) tp w) cok cerr eok eerr -> do
   let pxy = Proxy :: Proxy s
-      (ts, input') = scan_ f st input
+      (ts, input', st') = scan_ f st input
+
       !npos = advanceN pxy w pos ts
       len = chunkLength pxy ts
       hs =
         case ml >>= NE.nonEmpty of
           Nothing -> mempty
           Just l -> (Hints . pure . E.singleton . Label) l
-  in if chunkEmpty pxy ts
-       then eok ts (State input' (npos:|z) (tp + len) w) hs
-       else cok ts (State input' (npos:|z) (tp + len) w) hs
+
+  case st' of
+    Continue _ -> error "wtf"
+    Done | chunkEmpty pxy ts -> eok ts (State input' (npos:|z) (tp + len) w) hs
+         | otherwise         -> cok ts (State input' (npos:|z) (tp + len) w) hs
+    Expected unexp exp | chunkEmpty pxy ts -> eerr errMsg (State input' (npos:|z) (tp + len) w)
+                       | otherwise         -> cerr errMsg (State input' (npos:|z) (tp + len) w)
+      where
+        unexpected = Just (Tokens (pure unexp))
+        expected = maybe mempty (E.singleton . Label) (NE.nonEmpty exp)
+        errMsg = TrivialError (npos:|z) unexpected expected
+    OutOfInput exp | chunkEmpty pxy ts -> eerr errMsg (State input' (npos:|z) (tp + len) w)
+                   | otherwise         -> cerr errMsg (State input' (npos:|z) (tp + len) w)
+      where
+        unexpected = Just (Label $ NE.fromList "end of input")
+        expected = maybe mempty (E.singleton . Label) (NE.nonEmpty exp)
+        errMsg = TrivialError (npos:|z) unexpected expected
+
 {-# INLINE pScanP #-}
 
 pTakeWhile1P :: forall e s m. Stream s
